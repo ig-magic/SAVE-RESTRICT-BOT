@@ -52,7 +52,7 @@ HELP_TXT = """<b>🚀 Welcome to cantarella Save Restricted Bot - Complete Guide
 <b>💡 Tips</b>
 • Free users: 10 saves/day + 5 files per batch
 • Premium users: Unlimited saves & batch size
-• Contact @cantarellabots for support or premium purchase
+• Contact @ig_magic for support or premium purchase
 
 <b>Thank you for using cantarella! ❤️</b>
 """
@@ -99,7 +99,7 @@ COMMANDS_TXT = """<b>📜 All Available Commands</b>
 </blockquote>
 
 <b>🔥 Premium = Unlimited Everything</b>
-<i>Contact @cantarellabots to upgrade!</i>
+<i>Contact @ig_magic to upgrade!</i>
 """
 
 # Dont remove Credits
