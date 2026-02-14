@@ -37,9 +37,9 @@ REACTIONS = [
 
 
 dev_text = "👨‍💻 Mind Behind This Bot:\n• @ig_magic\n• @amesbu"
-expected_dev_hash = "b9e63b7578bdec13f3cb3162fe5f5e93dccaba3bfd5c8ddacbb90ffdcdcce402"
+expected_dev_hash = "f563bc20721177c47318daafb8d7c52adb4acffb0caaa2ff77aac1973651496c"
 channels_text = "📢 Official Channels:\n• @MAGICxBots\n• @MAGICxBots\n\nStay updated for new features!"
-expected_channels_hash = "e19212e571bd0f6626450dd790029d392c0748c554d4b386a0c0752f4148d37d"
+expected_channels_hash = "308d98518c939b58a4a07a2ae48d2091a7e6695a0699f8f07be985580647fc31"
 
 if (
     hashlib.sha256(dev_text.encode('utf-8')).hexdigest() != expected_dev_hash or
