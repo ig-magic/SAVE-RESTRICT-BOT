@@ -194,7 +194,7 @@ docker run -d --env-file .env save-restricted-bot
 # 🤝 Contributors
 
 <p align="center">
-  <a href="https://t.me/about_zani">
+  <a href="https://t.me/cantarella_wuwa">
     <img src="https://img.shields.io/badge/Abhi-Telegram-blue?style=for-the-badge&logo=telegram">
   </a>
   &nbsp;
