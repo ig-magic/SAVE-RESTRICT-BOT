@@ -286,7 +286,7 @@ async def send_plan(client: Client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML
     )
-@Client.on_message(filters.command(["cancel"]))
+@Client.on_message(filters.private & filters.command("cancel"), group=1)
 async def send_cancel(client: Client, message: Message):
     batch_temp.IS_BATCH[message.from_user.id] = True
     await message.reply_text("❌ Batch Process Cancelled Successfully.")
