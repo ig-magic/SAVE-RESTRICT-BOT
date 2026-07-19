@@ -1,11 +1,4 @@
-"""
-Save Restricted Content Bot Configuration
 
-Developed by: LastPerson07Xcantarella
-Telegram: @cantarellabots X @THEUPDATEDGUYS
-
-Please retain this credit if you use or modify this project.
-"""
 
 import os
 
