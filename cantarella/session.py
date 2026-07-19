@@ -1,5 +1,4 @@
-# Developed by: LastPerson07 × cantarella
-# Telegram: @cantarellabots | @THEUPDATEDGUYS
+
 
 import asyncio
 from pyrogram import Client, filters
@@ -87,7 +86,7 @@ async def logout(client: Client, message: Message):
         parse_mode=enums.ParseMode.HTML
     )
 
-@Client.on_message(filters.private & filters.command(["cancel", "cancellogin"]))
+@Client.on_message(filters.private & filters.command("cancellogin"))
 async def cancel_login(client: Client, message: Message):
     user_id = message.from_user.id
    
