@@ -62,10 +62,10 @@ class script(object):
 <blockquote><b>1️⃣ Public Channels (No Login Required)</b></blockquote>
 • Forward or send the post link directly.
 • Compatible with any public channel or group.
-• <i>Example Link:</i> <code>https://t.me/channel/123</code>
+• <i>Example Link:</i> <code>https://t.me/channel/1-100</code>
 <blockquote><b>2️⃣ Private/Restricted Channels (Login Required)</b></blockquote>
 • Use <code>/login</code> to securely connect your Telegram account.
-• Send the private link (e.g., <code>t.me/c/123...</code>).
+• Send the private link (e.g., <code>t.me/c/1-123</code>).
 • Bot accesses content using your authenticated session.
 <blockquote><b>3️⃣ Batch Downloading Mode</b></blockquote>
 • Initiate with <code>/batch</code> for multiple files.
