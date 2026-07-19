@@ -286,10 +286,33 @@ async def send_plan(client: Client, message: Message):
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML
     )
-@Client.on_message(filters.private & filters.command("cancel"), group=1)
-async def send_cancel(client: Client, message: Message):
-    batch_temp.IS_BATCH[message.from_user.id] = True
-    await message.reply_text("❌ Batch Process Cancelled Successfully.")
+@Client.on_message(filters.private & filters.command("cancel"))
+async def send_cancel(client, message):
+    user_id = message.from_user.id
+
+    # Login cancel
+    if user_id in LOGIN_STATE:
+        state = LOGIN_STATE[user_id]
+
+        if "data" in state and "client" in state["data"]:
+            try:
+                await state["data"]["client"].disconnect()
+            except:
+                pass
+
+        del LOGIN_STATE[user_id]
+        return await message.reply(
+            "❌ Login process cancelled.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+    # Batch cancel
+    if batch_temp.IS_BATCH.get(user_id) is False:
+        batch_temp.IS_BATCH[user_id] = True
+        return await message.reply("✅ Batch cancelled successfully.")
+
+    await message.reply("❌ No active login or batch process.")
+    
 async def settings_panel(client, callback_query):
     """
     Renders the Settings Menu with professional layout.
