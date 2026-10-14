@@ -109,7 +109,7 @@
 
 ```bash
 git clone https://github.com/abhinai2244/SAVE-RESTRICT-BOT.git
-cd SAVE-RESTRICT-BOT
+cd save-restricted-content-bot
 ```
 
 ### Install dependencies
