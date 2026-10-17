@@ -59,33 +59,50 @@ async def set_dump_chat(client: Client, message: Message):
         return await message.reply_text(
             "<b>🗑 Set Dump Chat</b>\n\n"
             "<b>Usage:</b>\n"
-            "<code>/setchat &lt;chat_id&gt;</code> → Set forward destination\n"
-            "<code>/setchat clear</code> → Remove dump chat\n\n"
+            "<code>/setchat &lt;chat_id&gt;</code> → Send every saved post there\n"
+            "<code>/setchat @channel</code> → Same, using username\n"
+            "<code>/setchat clear</code> → Send posts back to this chat\n\n"
+            "<i>Add this bot as admin in that channel or group, with Post Messages permission.</i>\n"
             "<i>Example: /setchat -1001234567890</i>",
             parse_mode=enums.ParseMode.HTML
         )
-    arg = message.command[1].strip().lower()
-    if arg == "clear":
+    arg_raw = message.command[1].strip()
+    if arg_raw.lower() == "clear":
         await db.set_dump_chat(user_id, None)
-        return await message.reply_text("✅ <b>Dump Chat Cleared Successfully</b>", parse_mode=enums.ParseMode.HTML)
-    try:
-        chat_id = int(arg)
-        try:
-            chat = await client.get_chat(chat_id)
-            chat_title = chat.title or "Private Chat"
-        except:
-            chat_title = "Unknown Chat"
-        await db.set_dump_chat(user_id, chat_id)
-        await message.reply_text(
-            f"✅ <b>Dump Chat Set Successfully</b>\n\n"
-            f"<b>Forward To:</b> <code>{chat_id}</code>\n"
-            f"<b>Title:</b> {chat_title}",
+        return await message.reply_text(
+            "✅ <b>Dump Chat Cleared</b>\n\n<i>New saved posts will come to this chat again.</i>",
             parse_mode=enums.ParseMode.HTML
         )
-    except ValueError:
-        await message.reply_text("❌ <b>Invalid Chat ID</b>\n\n<i>Must be a number (e.g., -1001234567890)</i>", parse_mode=enums.ParseMode.HTML)
+    try:
+        if arg_raw.lstrip("-").isdigit():
+            chat = await client.get_chat(int(arg_raw))
+        else:
+            chat = await client.get_chat(arg_raw)
+        chat_id = chat.id
+        chat_title = chat.title or getattr(chat, "first_name", None) or "Private Chat"
+        # Prove the bot can actually post before saving the setting.
+        await client.send_message(
+            chat_id,
+            "✅ Dump chat connected. Saved posts will be posted here."
+        )
+        await db.set_dump_chat(user_id, chat_id)
+        await message.reply_text(
+            f"✅ <b>Dump Chat Set</b>\n\n"
+            f"<b>Posts will go to:</b> {chat_title}\n"
+            f"<b>Chat ID:</b> <code>{chat_id}</code>\n\n"
+            f"<i>A test message was sent there. Saved posts will no longer come to this chat.</i>",
+            parse_mode=enums.ParseMode.HTML
+        )
     except Exception as e:
-        await message.reply_text(f"❌ <b>Unable to Access Chat</b>\n<i>{e}</i>", parse_mode=enums.ParseMode.HTML)
+        await message.reply_text(
+            "❌ <b>Bot cannot post in that chat</b>\n\n"
+            "1. Add this bot to the channel or group\n"
+            "2. Make it <b>admin</b>\n"
+            "3. Turn on <b>Post Messages</b>\n"
+            "4. Run <code>/setchat</code> again\n\n"
+            f"<code>{e}</code>",
+            parse_mode=enums.ParseMode.HTML
+        )
 # ======================================================
 # Callbacks - Full Settings Navigation
 # ======================================================
