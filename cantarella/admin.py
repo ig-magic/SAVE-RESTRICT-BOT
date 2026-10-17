@@ -39,8 +39,8 @@ async def set_dump(client: Client, message: Message):
     try:
         user_id = int(message.command[1])
         chat_id = int(message.command[2])
-        await db.set_dump_chat(user_id, chat_id)
-        await message.reply_text(f"**Dump chat set for user {user_id}.**")
+        await db.add_dump_chat(user_id, chat_id)
+        await message.reply_text(f"**Dump chat added for user {user_id}.**")
     except:
         await message.reply_text("Error setting dump chat.")
 
@@ -48,9 +48,7 @@ async def set_dump(client: Client, message: Message):
 async def dblink(client: Client, message: Message):
     await message.reply_text(f"**DB URI:** `{DB_URI}`")
 
-@Client.on_message(filters.command(["add_unsubscribe", "del_unsubscribe"]) & filters.user(ADMINS))
-async def manage_force_subscribe(client: Client, message: Message):
-    await message.reply_text("Force Subscribe management feature is coming soon.")
+
 
 # cantarella
 # Don't Remove Credit
