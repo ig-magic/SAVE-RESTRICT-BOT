@@ -59,20 +59,43 @@ async def set_dump_chat(client: Client, message: Message):
         return await message.reply_text(
             "<b>🗑 Set Dump Chat</b>\n\n"
             "<b>Usage:</b>\n"
-            "<code>/setchat &lt;chat_id&gt;</code> → Send every saved post there\n"
-            "<code>/setchat @channel</code> → Same, using username\n"
-            "<code>/setchat clear</code> → Send posts back to this chat\n\n"
-            "<i>Add this bot as admin in that channel or group, with Post Messages permission.</i>\n"
+            "<code>/setchat &lt;chat_id&gt;</code> → Add a dump chat\n"
+            "<code>/setchat @channel</code> → Add by username\n"
+            "<code>/setchat list</code> → Show all dump chats\n"
+            "<code>/setchat remove &lt;chat_id&gt;</code> → Remove one\n"
+            "<code>/setchat clear</code> → Remove all\n\n"
+            "<i>Add this bot as admin, with Post Messages. Add 2 or more, then /forward can choose a target.</i>\n"
             "<i>Example: /setchat -1001234567890</i>",
             parse_mode=enums.ParseMode.HTML
         )
     arg_raw = message.command[1].strip()
     if arg_raw.lower() == "clear":
-        await db.set_dump_chat(user_id, None)
+        await db.clear_dump_chats(user_id)
         return await message.reply_text(
-            "✅ <b>Dump Chat Cleared</b>\n\n<i>New saved posts will come to this chat again.</i>",
+            "✅ <b>All dump chats cleared</b>\n\n<i>New saved posts will come to this chat again.</i>",
             parse_mode=enums.ParseMode.HTML
         )
+    if arg_raw.lower() == "list":
+        chats = await db.list_dump_chats(user_id)
+        if not chats:
+            return await message.reply_text("🗑 No dump chats set.")
+        lines = []
+        for chat_id in chats:
+            try:
+                chat = await client.get_chat(chat_id)
+                title = chat.title or "Private Chat"
+            except Exception:
+                title = "Unknown"
+            lines.append(f"• {title} — <code>{chat_id}</code>")
+        return await message.reply_text(
+            "<b>🗑 Dump chats</b>\n" + "\n".join(lines),
+            parse_mode=enums.ParseMode.HTML
+        )
+    if arg_raw.lower() == "remove":
+        if len(message.command) < 3 or not message.command[2].lstrip("-").isdigit():
+            return await message.reply_text("❌ <code>/setchat remove -100...</code>", parse_mode=enums.ParseMode.HTML)
+        left = await db.remove_dump_chat(user_id, int(message.command[2]))
+        return await message.reply_text(f"✅ Removed. {len(left)} dump chat(s) left.")
     try:
         if arg_raw.lstrip("-").isdigit():
             chat = await client.get_chat(int(arg_raw))
@@ -80,17 +103,17 @@ async def set_dump_chat(client: Client, message: Message):
             chat = await client.get_chat(arg_raw)
         chat_id = chat.id
         chat_title = chat.title or getattr(chat, "first_name", None) or "Private Chat"
-        # Prove the bot can actually post before saving the setting.
         await client.send_message(
             chat_id,
             "✅ Dump chat connected. Saved posts will be posted here."
         )
-        await db.set_dump_chat(user_id, chat_id)
+        chats = await db.add_dump_chat(user_id, chat_id)
         await message.reply_text(
-            f"✅ <b>Dump Chat Set</b>\n\n"
-            f"<b>Posts will go to:</b> {chat_title}\n"
-            f"<b>Chat ID:</b> <code>{chat_id}</code>\n\n"
-            f"<i>A test message was sent there. Saved posts will no longer come to this chat.</i>",
+            f"✅ <b>Dump chat added</b>\n\n"
+            f"<b>Chat:</b> {chat_title}\n"
+            f"<b>Chat ID:</b> <code>{chat_id}</code>\n"
+            f"<b>Total dump chats:</b> {len(chats)}\n\n"
+            f"<i>A test message was sent there. Add 2 or more, then use /forward to pick a target.</i>",
             parse_mode=enums.ParseMode.HTML
         )
     except Exception as e:
@@ -121,19 +144,20 @@ async def settings_callbacks(client: Client, callback_query: CallbackQuery):
             disable_web_page_preview=True
         )
     elif data == "dump_chat_btn":
-        current = await db.get_dump_chat(user_id)
+        current = await db.list_dump_chats(user_id)
         if current:
-            try:
-                chat = await client.get_chat(current)
-                title = chat.title or "Private Chat"
-            except:
-                title = "Unknown (Inaccessible)"
+            lines = []
+            for chat_id in current:
+                try:
+                    chat = await client.get_chat(chat_id)
+                    title = chat.title or "Private Chat"
+                except Exception:
+                    title = "Unknown"
+                lines.append(f"• {title} — <code>{chat_id}</code>")
             text = (
-                f"<b>🗑 Current Dump Chat</b>\n\n"
-                f"<b>Chat ID:</b> <code>{current}</code>\n"
-                f"<b>Title:</b> {title}\n\n"
-                "<i>All saved files are forwarded here.</i>\n"
-                "<i>Use /setchat to change or clear.</i>"
+                f"<b>🗑 Dump chats ({len(current)})</b>\n\n"
+                + "\n".join(lines)
+                + "\n\n<i>Saved posts go here. /forward picks one target when you have 2 or more.</i>"
             )
         else:
             text = (
