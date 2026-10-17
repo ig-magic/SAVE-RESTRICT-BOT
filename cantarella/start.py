@@ -149,6 +149,9 @@ def TimeFormatter(milliseconds: int) -> str:
     return tmp[:-2] if tmp else "0s"
 class batch_temp(object):
     IS_BATCH = {}
+
+SAVE_QUEUE = {}
+SAVE_LOCK = set()
 START_PHOTO_FALLBACK = "https://i.postimg.cc/kX9tjGXP/16.png"
 START_PHOTO_APIS = [
     "https://nekos.life/api/v2/img/waifu",
@@ -336,14 +339,19 @@ async def send_cancel(client, message):
         return
     user_id = message.from_user.id
 
+    if forward_is_running(user_id) or in_forward_setup(user_id):
+        return
+    queued = SAVE_QUEUE.pop(user_id, None)
     if batch_temp.IS_BATCH.get(user_id) is False:
         batch_temp.IS_BATCH[user_id] = True
         return await message.reply(
-            "✅ Batch cancelled successfully.",
+            await tr(user_id, "batch_cancelled"),
             reply_markup=ReplyKeyboardRemove()
         )
+    if queued:
+        return await message.reply(await tr(user_id, "queue_cleared"))
 
-    await message.reply("❌ No active login or batch process.")
+    await message.reply(await tr(user_id, "nothing_active"))
     
 async def settings_panel(client, callback_query):
     """
@@ -369,16 +377,52 @@ async def settings_panel(client, callback_query):
         reply_markup=buttons,
         parse_mode=enums.ParseMode.HTML
     )
-async def saved_post_destination(user_id, fallback_chat_id):
-    """Where the saved post itself should be delivered. Progress stays in the private chat."""
-    dump = await db.get_dump_chat(user_id)
-    if not dump:
-        return fallback_chat_id, False
-    return int(dump), True
+async def delivery_targets(user_id, fallback_chat_id):
+    """Chats that should receive the saved post. Progress stays in the private chat."""
+    dumps = await db.list_dump_chats(user_id)
+    mode = await db.get_copy_mode(user_id)
+    if not dumps or mode == "pm":
+        return [fallback_chat_id], False
+    if mode == "both" and fallback_chat_id not in dumps:
+        return dumps + [fallback_chat_id], True
+    return dumps, True
 
 
 @Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
 async def save(client: Client, message: Message):
+    if not message.from_user or "https://t.me/" not in (message.text or ""):
+        return
+    if in_forward_setup(message.from_user.id):
+        return
+    user_id = message.from_user.id
+    if user_id in SAVE_LOCK:
+        SAVE_QUEUE.setdefault(user_id, []).append(message)
+        return await message.reply_text(
+            await tr(user_id, "queued", n=len(SAVE_QUEUE[user_id])),
+            parse_mode=enums.ParseMode.HTML,
+        )
+    SAVE_LOCK.add(user_id)
+    current = message
+    try:
+        while current is not None:
+            if not await ensure_fsub(client, current):
+                break
+            try:
+                await _save_link(client, current)
+            except Exception as exc:
+                logger.error(f"Save failed: {exc}")
+                try:
+                    await current.reply_text(f"❌ Save failed.\n<code>{exc}</code>", parse_mode=enums.ParseMode.HTML)
+                except Exception:
+                    pass
+            queued = SAVE_QUEUE.get(user_id) or []
+            current = queued.pop(0) if queued else None
+    finally:
+        SAVE_LOCK.discard(user_id)
+        SAVE_QUEUE.pop(user_id, None)
+
+
+async def _save_link(client: Client, message: Message):
     if "https://t.me/" in message.text:
        
         is_limit_reached = await db.check_limit(message.from_user.id)
@@ -391,8 +435,6 @@ async def save(client: Client, message: Message):
                 parse_mode=enums.ParseMode.HTML
             )
        
-        if batch_temp.IS_BATCH.get(message.from_user.id) == False:
-            return await message.reply_text("<b>⚠️ A Task is Currently Processing.</b>\n<i>Please wait for completion or use /cancel to stop.</i>", parse_mode=enums.ParseMode.HTML)
         datas = message.text.split("/")
         temp = datas[-1].replace("?single", "").split("-")
         fromID = int(temp[0].strip())
@@ -404,12 +446,12 @@ async def save(client: Client, message: Message):
         is_private_link = "https://t.me/c/" in message.text
         is_batch = "https://t.me/b/" in message.text
         is_public_link = not is_private_link and not is_batch
-        dest_chat, is_dump = await saved_post_destination(message.from_user.id, message.chat.id)
+        dest_chats, is_dump = await delivery_targets(message.from_user.id, message.chat.id)
         copied_to_dump = 0
         if is_dump:
+            shown = ", ".join(f"<code>{chat_id}</code>" for chat_id in dest_chats)
             await message.reply_text(
-                f"📤 <b>Dump chat is on.</b>\n"
-                f"Saved posts will go to <code>{dest_chat}</code>, not this chat.",
+                f"📤 <b>Dump chat is on.</b>\nSaved posts will go to {shown}.",
                 parse_mode=enums.ParseMode.HTML
             )
         for msgid in range(fromID, toID + 1):
@@ -420,14 +462,19 @@ async def save(client: Client, message: Message):
             if is_public_link:
                 username = datas[3]
                 try:
-                    copy_kwargs = {
-                        "chat_id": dest_chat,
-                        "from_chat_id": username,
-                        "message_id": msgid,
-                    }
-                    if not is_dump:
-                        copy_kwargs["reply_to_message_id"] = message.id
-                    await client.copy_message(**copy_kwargs)
+                    copied_any = False
+                    for dest in dest_chats:
+                        copy_kwargs = {
+                            "chat_id": dest,
+                            "from_chat_id": username,
+                            "message_id": msgid,
+                        }
+                        if dest == message.chat.id:
+                            copy_kwargs["reply_to_message_id"] = message.id
+                        await client.copy_message(**copy_kwargs)
+                        copied_any = True
+                    if not copied_any:
+                        raise RuntimeError("copy failed")
                     await db.add_traffic(message.from_user.id)
                     if is_dump:
                         copied_to_dump += 1
@@ -460,13 +507,13 @@ async def save(client: Client, message: Message):
                 return await message.reply(f"<b>❌ Authentication Failed</b>\n\n<i>Your session may have expired. Please /logout and /login again.</i>\n<code>{e}</code>", parse_mode=enums.ParseMode.HTML)
             if is_private_link:
                 chatid = int("-100" + datas[4])
-                await handle_restricted_content(client, acc, message, chatid, msgid, dest_chat, is_dump)
+                await handle_restricted_content(client, acc, message, chatid, msgid, dest_chats, is_dump)
             elif is_batch:
                 username = datas[4]
-                await handle_restricted_content(client, acc, message, username, msgid, dest_chat, is_dump)
+                await handle_restricted_content(client, acc, message, username, msgid, dest_chats, is_dump)
             else:
                 username = datas[3]
-                await handle_restricted_content(client, acc, message, username, msgid, dest_chat, is_dump)
+                await handle_restricted_content(client, acc, message, username, msgid, dest_chats, is_dump)
             await asyncio.sleep(2)
         batch_temp.IS_BATCH[message.from_user.id] = True
         if copied_to_dump:
@@ -474,9 +521,9 @@ async def save(client: Client, message: Message):
                 f"✅ <b>{copied_to_dump}</b> post(s) posted to your dump chat.",
                 parse_mode=enums.ParseMode.HTML
             )
-async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid, dest_chat=None, is_dump=False):
-    if dest_chat is None:
-        dest_chat, is_dump = await saved_post_destination(message.from_user.id, message.chat.id)
+async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid, dest_chats=None, is_dump=False):
+    if not dest_chats:
+        dest_chats, is_dump = await delivery_targets(message.from_user.id, message.chat.id)
     try:
         msg: Message = await acc.get_messages(chat_target, msgid)
     except Exception as e:
@@ -505,7 +552,11 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             return
     if msg_type == "Text":
         try:
-            await client.send_message(dest_chat, msg.text, entities=msg.entities, parse_mode=enums.ParseMode.HTML)
+            text = await clean_text(message.from_user.id, msg.text or "")
+            if not text:
+                return
+            for dest in dest_chats:
+                await client.send_message(dest, text, parse_mode=enums.ParseMode.HTML)
             if is_dump:
                 await message.reply("✅ Text posted to your dump chat.")
             return
@@ -563,14 +614,17 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             final_caption = script.CAPTION.format(file_name=file.split("/")[-1])
             if msg.caption:
                 final_caption += f"\n\n{msg.caption}"
-        if msg_type == "Document":
-            await client.send_document(dest_chat, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Video":
-            await client.send_video(dest_chat, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Audio":
-            await client.send_audio(dest_chat, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
-        elif msg_type == "Photo":
-            await client.send_photo(dest_chat, file, caption=final_caption)
+        final_caption = await clean_text(message.from_user.id, final_caption)
+        file = await rename_path(message.from_user.id, file)
+        for dest in dest_chats:
+            if msg_type == "Document":
+                await client.send_document(dest, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Video":
+                await client.send_video(dest, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Audio":
+                await client.send_audio(dest, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            elif msg_type == "Photo":
+                await client.send_photo(dest, file, caption=final_caption)
         uploaded = True
        
     except Exception as e:
