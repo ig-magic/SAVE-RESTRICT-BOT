@@ -19,6 +19,36 @@ from database.db import db
 import math
 from logger import LOGGER
 logger = LOGGER(__name__)
+
+try:
+    from cantarella.forward import in_forward_setup, forward_is_running
+except Exception:
+    def in_forward_setup(_user_id):
+        return False
+
+    def forward_is_running(_user_id):
+        return False
+
+try:
+    from cantarella.fsub import ensure_fsub
+except Exception:
+    async def ensure_fsub(_client, _message):
+        return True
+
+try:
+    from cantarella.textutil import clean_text, rename_path
+except Exception:
+    async def clean_text(_user_id, text):
+        return text or ""
+
+    async def rename_path(_user_id, path, index=1):
+        return path
+
+try:
+    from cantarella.i18n import tr
+except Exception:
+    async def tr(_user_id, key, **kwargs):
+        return key
 SUBSCRIPTION = os.environ.get('SUBSCRIPTION', 'https://graph.org/file/242b7f1b52743938d81f1.jpg')
 FREE_LIMIT_SIZE = 2 * 1024 * 1024 * 1024
 FREE_LIMIT_DAILY = 10
