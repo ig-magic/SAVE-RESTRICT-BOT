@@ -37,8 +37,11 @@ HELP_TXT = """<b>🚀 Welcome to cantarella Save Restricted Bot - Complete Guide
 <blockquote><b>/myplan</b> — View your plan status & quota</blockquote>
 <blockquote><b>/premium</b> — Premium plans & benefits</blockquote>
 
-<blockquote><b>/setchat &lt;chat_id&gt;</b> — Send every saved post to that chat or channel</blockquote>
-<blockquote><b>/setchat clear</b> — Remove dump chat</blockquote>
+<blockquote><b>/setchat &lt;chat_id&gt;</b> — Add a dump chat. Repeat to add more.</blockquote>
+<blockquote><b>/setchat list</b> — Show dump chats · <b>/setchat remove</b> · <b>/setchat clear</b></blockquote>
+<blockquote><b>/forward</b> — Forward a source channel into one dump chat</blockquote>
+<blockquote><b>/copymode dump|both|pm</b> — Where normal saves are delivered</blockquote>
+<blockquote><b>/setname</b> — Rename files · <b>/lang en|hi</b></blockquote>
 
 <blockquote><b>/set_caption &lt;text&gt;</b> — Set custom caption (use {filename} & {size})</blockquote>
 <blockquote><b>/see_caption</b> — Preview current caption</blockquote>
