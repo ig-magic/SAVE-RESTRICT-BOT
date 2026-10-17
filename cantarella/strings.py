@@ -18,7 +18,7 @@ HELP_TXT = """<b>🚀 Welcome to cantarella Save Restricted Bot - Complete Guide
 <b>3. Features</b>
 • Custom captions with {filename} & {size} placeholders
 • Custom thumbnails
-• Auto-forward to your dump chat
+• Saved posts go to your dump chat or channel, not this chat
 • Daily token system (10 saves/day for free users)
 • Premium = unlimited everything ♾️
 </blockquote>
@@ -37,7 +37,7 @@ HELP_TXT = """<b>🚀 Welcome to cantarella Save Restricted Bot - Complete Guide
 <blockquote><b>/myplan</b> — View your plan status & quota</blockquote>
 <blockquote><b>/premium</b> — Premium plans & benefits</blockquote>
 
-<blockquote><b>/setchat &lt;chat_id&gt;</b> — Set dump chat (auto-forward saved files)</blockquote>
+<blockquote><b>/setchat &lt;chat_id&gt;</b> — Send every saved post to that chat or channel</blockquote>
 <blockquote><b>/setchat clear</b> — Remove dump chat</blockquote>
 
 <blockquote><b>/set_caption &lt;text&gt;</b> — Set custom caption (use {filename} & {size})</blockquote>
@@ -79,7 +79,7 @@ COMMANDS_TXT = """<b>📜 All Available Commands</b>
 
 <b>📤 Dump Chat</b>
 <blockquote>
-/setchat &lt;chat_id&gt; — Set forward destination
+/setchat &lt;chat_id&gt; — Send saved posts to that chat
 /setchat clear — Remove dump chat
 </blockquote>
 
