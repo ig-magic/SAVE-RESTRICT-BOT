@@ -93,9 +93,14 @@ class Database:
         return user.get('is_banned', False)
     # Dump Chat Support
     async def set_dump_chat(self, id, chat_id):
+        if chat_id is None:
+            await self.col.update_one({'id': int(id)}, {'$unset': {'dump_chat': ""}})
+            return
         await self.col.update_one({'id': int(id)}, {'$set': {'dump_chat': int(chat_id)}})
     async def get_dump_chat(self, id):
         user = await self.col.find_one({'id': int(id)})
+        if not user:
+            return None
         return user.get('dump_chat', None)
     # Delete/Replace Words Support
     async def set_delete_words(self, id, words):
