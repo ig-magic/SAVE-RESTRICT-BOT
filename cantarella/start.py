@@ -369,6 +369,14 @@ async def settings_panel(client, callback_query):
         reply_markup=buttons,
         parse_mode=enums.ParseMode.HTML
     )
+async def saved_post_destination(user_id, fallback_chat_id):
+    """Where the saved post itself should be delivered. Progress stays in the private chat."""
+    dump = await db.get_dump_chat(user_id)
+    if not dump:
+        return fallback_chat_id, False
+    return int(dump), True
+
+
 @Client.on_message(filters.text & filters.private & ~filters.regex("^/"))
 async def save(client: Client, message: Message):
     if "https://t.me/" in message.text:
@@ -396,6 +404,14 @@ async def save(client: Client, message: Message):
         is_private_link = "https://t.me/c/" in message.text
         is_batch = "https://t.me/b/" in message.text
         is_public_link = not is_private_link and not is_batch
+        dest_chat, is_dump = await saved_post_destination(message.from_user.id, message.chat.id)
+        copied_to_dump = 0
+        if is_dump:
+            await message.reply_text(
+                f"📤 <b>Dump chat is on.</b>\n"
+                f"Saved posts will go to <code>{dest_chat}</code>, not this chat.",
+                parse_mode=enums.ParseMode.HTML
+            )
         for msgid in range(fromID, toID + 1):
            
             if batch_temp.IS_BATCH.get(message.from_user.id):
@@ -404,13 +420,17 @@ async def save(client: Client, message: Message):
             if is_public_link:
                 username = datas[3]
                 try:
-                    await client.copy_message(
-                        chat_id=message.chat.id,
-                        from_chat_id=username,
-                        message_id=msgid,
-                        reply_to_message_id=message.id
-                    )
+                    copy_kwargs = {
+                        "chat_id": dest_chat,
+                        "from_chat_id": username,
+                        "message_id": msgid,
+                    }
+                    if not is_dump:
+                        copy_kwargs["reply_to_message_id"] = message.id
+                    await client.copy_message(**copy_kwargs)
                     await db.add_traffic(message.from_user.id)
+                    if is_dump:
+                        copied_to_dump += 1
                     await asyncio.sleep(1)
                     continue
                 except Exception as e:
@@ -440,16 +460,23 @@ async def save(client: Client, message: Message):
                 return await message.reply(f"<b>❌ Authentication Failed</b>\n\n<i>Your session may have expired. Please /logout and /login again.</i>\n<code>{e}</code>", parse_mode=enums.ParseMode.HTML)
             if is_private_link:
                 chatid = int("-100" + datas[4])
-                await handle_restricted_content(client, acc, message, chatid, msgid)
+                await handle_restricted_content(client, acc, message, chatid, msgid, dest_chat, is_dump)
             elif is_batch:
                 username = datas[4]
-                await handle_restricted_content(client, acc, message, username, msgid)
+                await handle_restricted_content(client, acc, message, username, msgid, dest_chat, is_dump)
             else:
                 username = datas[3]
-                await handle_restricted_content(client, acc, message, username, msgid)
+                await handle_restricted_content(client, acc, message, username, msgid, dest_chat, is_dump)
             await asyncio.sleep(2)
         batch_temp.IS_BATCH[message.from_user.id] = True
-async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid):
+        if copied_to_dump:
+            await message.reply_text(
+                f"✅ <b>{copied_to_dump}</b> post(s) posted to your dump chat.",
+                parse_mode=enums.ParseMode.HTML
+            )
+async def handle_restricted_content(client: Client, acc, message: Message, chat_target, msgid, dest_chat=None, is_dump=False):
+    if dest_chat is None:
+        dest_chat, is_dump = await saved_post_destination(message.from_user.id, message.chat.id)
     try:
         msg: Message = await acc.get_messages(chat_target, msgid)
     except Exception as e:
@@ -478,9 +505,16 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             return
     if msg_type == "Text":
         try:
-            await client.send_message(message.chat.id, msg.text, entities=msg.entities, parse_mode=enums.ParseMode.HTML)
+            await client.send_message(dest_chat, msg.text, entities=msg.entities, parse_mode=enums.ParseMode.HTML)
+            if is_dump:
+                await message.reply("✅ Text posted to your dump chat.")
             return
-        except:
+        except Exception as e:
+            if is_dump:
+                await message.reply(
+                    f"❌ Could not post to dump chat. Add the bot as admin with Post Messages.\n<code>{e}</code>",
+                    parse_mode=enums.ParseMode.HTML
+                )
             return
     await db.add_traffic(message.from_user.id)
     smsg = await client.send_message(message.chat.id, '<b>⬇️ Starting Download...</b>', reply_to_message_id=message.id, parse_mode=enums.ParseMode.HTML)
@@ -530,19 +564,31 @@ async def handle_restricted_content(client: Client, acc, message: Message, chat_
             if msg.caption:
                 final_caption += f"\n\n{msg.caption}"
         if msg_type == "Document":
-            await client.send_document(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await client.send_document(dest_chat, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Video":
-            await client.send_video(message.chat.id, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await client.send_video(dest_chat, file, duration=msg.video.duration, width=msg.video.width, height=msg.video.height, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Audio":
-            await client.send_audio(message.chat.id, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
+            await client.send_audio(dest_chat, file, thumb=ph_path, caption=final_caption, progress=progress, progress_args=[message, "up"])
         elif msg_type == "Photo":
-            await client.send_photo(message.chat.id, file, caption=final_caption)
+            await client.send_photo(dest_chat, file, caption=final_caption)
+        uploaded = True
        
     except Exception as e:
-         await smsg.edit(f"Upload Failed: {e}")
+        uploaded = False
+        if is_dump:
+            await smsg.edit(
+                f"❌ Could not post to dump chat.\n"
+                f"Add the bot as admin and turn on Post Messages.\n<code>{e}</code>",
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            await smsg.edit(f"Upload Failed: {e}")
     if os.path.exists(f'{message.id}upstatus.txt'): os.remove(f'{message.id}upstatus.txt')
     if os.path.exists(temp_dir): shutil.rmtree(temp_dir)
-    await client.delete_messages(message.chat.id, [smsg.id])
+    if uploaded and is_dump:
+        await smsg.edit("✅ Posted to your dump chat.")
+    elif uploaded:
+        await client.delete_messages(message.chat.id, [smsg.id])
 @Client.on_callback_query()
 async def button_callbacks(client: Client, callback_query: CallbackQuery):
     data = callback_query.data
