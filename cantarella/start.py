@@ -13,7 +13,7 @@ from pyrogram.errors import (
     FloodWait, UserIsBlocked, InputUserDeactivated, UserAlreadyParticipant,
     InviteHashExpired, UsernameNotOccupied, AuthKeyUnregistered, UserDeactivated, UserDeactivatedBan
 )
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, InputMediaPhoto
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, InputMediaPhoto, ReplyKeyboardRemove
 from config import API_ID, API_HASH, ERROR_MESSAGE
 from database.db import db
 import math
@@ -149,6 +149,54 @@ def TimeFormatter(milliseconds: int) -> str:
     return tmp[:-2] if tmp else "0s"
 class batch_temp(object):
     IS_BATCH = {}
+START_PHOTO_FALLBACK = "https://i.postimg.cc/kX9tjGXP/16.png"
+START_PHOTO_APIS = [
+    "https://nekos.life/api/v2/img/waifu",
+]
+
+
+def _fetch_start_photo_url():
+    """Blocking fetch. Never call this directly from an async handler."""
+    last_error = None
+    for api_url in START_PHOTO_APIS:
+        try:
+            response = requests.get(api_url, timeout=8)
+            response.raise_for_status()
+            photo_url = response.json().get("url")
+            if photo_url:
+                return photo_url
+        except Exception as e:
+            last_error = e
+    if last_error:
+        logger.warning(f"Start image API unavailable, using fallback: {last_error}")
+    return START_PHOTO_FALLBACK
+
+
+async def get_start_photo():
+    try:
+        return await asyncio.to_thread(_fetch_start_photo_url)
+    except Exception as e:
+        logger.warning(f"Start image fetch failed, using fallback: {e}")
+        return START_PHOTO_FALLBACK
+
+
+def start_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💎 Buy Premium", callback_data="buy_premium"),
+            InlineKeyboardButton("🆘 Help & Guide", callback_data="help_btn")
+        ],
+        [
+            InlineKeyboardButton("⚙️ Settings Panel", callback_data="settings_btn"),
+            InlineKeyboardButton("ℹ️ About Bot", callback_data="about_btn")
+        ],
+        [
+            InlineKeyboardButton('📢 Channels', callback_data="channels_info"),
+            InlineKeyboardButton('👨‍💻 Developers', callback_data="dev_info")
+        ]
+    ])
+
+
 def get_message_type(msg):
     if getattr(msg, 'document', None): return "Document"
     if getattr(msg, 'video', None): return "Video"
@@ -223,47 +271,40 @@ def progress(current, total, message, type):
                 progress.cache.pop(task_id, None)
         except:
             pass
-@Client.on_message(filters.command(["start"]))
+@Client.on_message(filters.private & filters.command(["start"]))
 async def send_start(client: Client, message: Message):
-    if not await db.is_user_exist(message.from_user.id):
-        await db.add_user(message.from_user.id, message.from_user.first_name)
+    # Channel posts and anonymous admins have no from_user. Touching .id crashes the handler.
+    user = message.from_user
+    if user is None:
+        return
+    if not await db.is_user_exist(user.id):
+        await db.add_user(user.id, user.first_name)
     try:
         await message.react(emoji=random.choice(REACTIONS), big=True)
-    except:
+    except Exception:
         pass
-    apis = ["https://api.waifu.pics/sfw/waifu", "https://nekos.life/api/v2/img/waifu"]
-    api_url = random.choice(apis)
-    try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        photo_url = response.json()["url"]
-    except Exception as e:
-        logger.error(f"Failed to fetch image from API: {e}")
-        photo_url = "https://i.postimg.cc/kX9tjGXP/16.png"
-    buttons = [
-        [
-            InlineKeyboardButton("💎 Buy Premium", callback_data="buy_premium"),
-            InlineKeyboardButton("🆘 Help & Guide", callback_data="help_btn")
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings Panel", callback_data="settings_btn"),
-            InlineKeyboardButton("ℹ️ About Bot", callback_data="about_btn")
-        ],
-        [
-            InlineKeyboardButton('📢 Channels', callback_data="channels_info"),
-            InlineKeyboardButton('👨‍💻 Developers', callback_data="dev_info")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons)
+    photo_url = await get_start_photo()
+    reply_markup = start_keyboard()
     bot = await client.get_me()
-    await client.send_photo(
-        chat_id=message.chat.id,
-        photo=photo_url,
-        caption=script.START_TXT.format(message.from_user.mention, bot.username, bot.first_name),
-        reply_markup=reply_markup,
-        reply_to_message_id=message.id,
-        parse_mode=enums.ParseMode.HTML
-    )
+    caption = script.START_TXT.format(user.mention, bot.username, bot.first_name)
+    try:
+        await client.send_photo(
+            chat_id=message.chat.id,
+            photo=photo_url,
+            caption=caption,
+            reply_markup=reply_markup,
+            reply_to_message_id=message.id,
+            parse_mode=enums.ParseMode.HTML
+        )
+    except Exception as e:
+        logger.warning(f"Start photo send failed, sending text instead: {e}")
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=caption,
+            reply_markup=reply_markup,
+            reply_to_message_id=message.id,
+            parse_mode=enums.ParseMode.HTML
+        )
 @Client.on_message(filters.command(["help"]))
 async def send_help(client: Client, message: Message):
     buttons = [[InlineKeyboardButton("❌ Close Menu", callback_data="close_btn")]]
@@ -288,28 +329,19 @@ async def send_plan(client: Client, message: Message):
     )
 @Client.on_message(filters.private & filters.command("cancel"), group=1)
 async def send_cancel(client, message):
+    # Login cancel lives in session.py. This handler only stops a running batch.
+    # LOGIN_STATE was used here without being imported, so every /cancel crashed
+    # before the batch check could run.
+    if not message.from_user:
+        return
     user_id = message.from_user.id
 
-    # Login cancel
-    if user_id in LOGIN_STATE:
-        state = LOGIN_STATE[user_id]
-
-        if "data" in state and "client" in state["data"]:
-            try:
-                await state["data"]["client"].disconnect()
-            except:
-                pass
-
-        del LOGIN_STATE[user_id]
-        return await message.reply(
-            "❌ Login process cancelled.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-
-    # Batch cancel
     if batch_temp.IS_BATCH.get(user_id) is False:
         batch_temp.IS_BATCH[user_id] = True
-        return await message.reply("✅ Batch cancelled successfully.")
+        return await message.reply(
+            "✅ Batch cancelled successfully.",
+            reply_markup=ReplyKeyboardRemove()
+        )
 
     await message.reply("❌ No active login or batch process.")
     
@@ -564,37 +596,17 @@ async def button_callbacks(client: Client, callback_query: CallbackQuery):
         )
     elif data == "start_btn":
         bot = await client.get_me()
-        apis = ["https://api.waifu.pics/sfw/waifu", "https://nekos.life/api/v2/img/waifu"]
-        api_url = random.choice(apis)
-        try:
-            response = requests.get(api_url)
-            response.raise_for_status()
-            photo_url = response.json()["url"]
-        except Exception as e:
-            logger.error(f"Failed to fetch image from API: {e}")
-            photo_url = "https://i.postimg.cc/cC7txyhz/15.png"
-        buttons = [
-            [
-                InlineKeyboardButton("💎 Buy Premium", callback_data="buy_premium"),
-                InlineKeyboardButton("🆘 Help & Guide", callback_data="help_btn")
-            ],
-            [
-                InlineKeyboardButton("⚙️ Settings Panel", callback_data="settings_btn"),
-                InlineKeyboardButton("ℹ️ About Bot", callback_data="about_btn")
-            ],
-            [
-                InlineKeyboardButton('📢 Channels', callback_data="channels_info"),
-                InlineKeyboardButton('👨‍💻 Developers', callback_data="dev_info")
-            ]
-        ]
+        photo_url = await get_start_photo()
+        user = callback_query.from_user
+        mention = user.mention if user else "there"
         await client.edit_message_media(
             chat_id=message.chat.id,
             message_id=message.id,
             media=InputMediaPhoto(
                 media=photo_url,
-                caption=script.START_TXT.format(callback_query.from_user.mention, bot.username, bot.first_name)
+                caption=script.START_TXT.format(mention, bot.username, bot.first_name)
             ),
-            reply_markup=InlineKeyboardMarkup(buttons)
+            reply_markup=start_keyboard()
         )
     elif data == "close_btn":
         await message.delete()
