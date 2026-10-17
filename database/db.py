@@ -91,17 +91,107 @@ class Database:
     async def is_banned(self, id):
         user = await self.col.find_one({'id': int(id)})
         return user.get('is_banned', False)
-    # Dump Chat Support
-    async def set_dump_chat(self, id, chat_id):
-        if chat_id is None:
-            await self.col.update_one({'id': int(id)}, {'$unset': {'dump_chat': ""}})
-            return
-        await self.col.update_one({'id': int(id)}, {'$set': {'dump_chat': int(chat_id)}})
-    async def get_dump_chat(self, id):
+    # Dump Chat Support. dump_chats is the list. dump_chat stays as the first one for old code.
+    async def list_dump_chats(self, id):
         user = await self.col.find_one({'id': int(id)})
         if not user:
-            return None
-        return user.get('dump_chat', None)
+            return []
+        chats = []
+        for raw in user.get('dump_chats') or []:
+            try:
+                chats.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        old = user.get('dump_chat')
+        try:
+            old = int(old) if old else None
+        except (TypeError, ValueError):
+            old = None
+        if old and old not in chats:
+            chats.insert(0, old)
+        seen = []
+        for chat_id in chats:
+            if chat_id not in seen:
+                seen.append(chat_id)
+        return seen
+    async def add_dump_chat(self, id, chat_id):
+        chats = await self.list_dump_chats(id)
+        chat_id = int(chat_id)
+        if chat_id not in chats:
+            if len(chats) >= 10:
+                raise ValueError("Dump chat limit is 10")
+            chats.append(chat_id)
+        await self.col.update_one(
+            {'id': int(id)},
+            {'$set': {'dump_chats': chats, 'dump_chat': chats[0] if chats else None}}
+        )
+        return chats
+    async def remove_dump_chat(self, id, chat_id):
+        chats = [c for c in await self.list_dump_chats(id) if c != int(chat_id)]
+        await self.col.update_one(
+            {'id': int(id)},
+            {'$set': {'dump_chats': chats, 'dump_chat': chats[0] if chats else None}}
+        )
+        return chats
+    async def clear_dump_chats(self, id):
+        await self.col.update_one({'id': int(id)}, {'$unset': {'dump_chat': "", 'dump_chats': ""}})
+    async def set_dump_chat(self, id, chat_id):
+        if chat_id is None:
+            await self.clear_dump_chats(id)
+            return
+        await self.add_dump_chat(id, chat_id)
+    async def get_dump_chat(self, id):
+        chats = await self.list_dump_chats(id)
+        return chats[0] if chats else None
+    async def get_copy_mode(self, id):
+        user = await self.col.find_one({'id': int(id)}) or {}
+        mode = user.get('copy_mode')
+        return mode if mode in ("dump", "both", "pm") else "dump"
+    async def set_copy_mode(self, id, mode):
+        await self.col.update_one({'id': int(id)}, {'$set': {'copy_mode': mode}})
+    async def get_rename(self, id):
+        user = await self.col.find_one({'id': int(id)}) or {}
+        return user.get('rename_template')
+    async def set_rename(self, id, template):
+        if not template:
+            await self.col.update_one({'id': int(id)}, {'$unset': {'rename_template': ""}})
+            return
+        await self.col.update_one({'id': int(id)}, {'$set': {'rename_template': template}})
+    async def get_lang(self, id):
+        user = await self.col.find_one({'id': int(id)}) or {}
+        return user.get('lang') if user.get('lang') in ("en", "hi") else "en"
+    async def set_lang(self, id, lang):
+        await self.col.update_one({'id': int(id)}, {'$set': {'lang': lang}})
+    async def add_fsub(self, chat):
+        await self.db.settings.update_one(
+            {'_id': 'fsub'},
+            {'$pull': {'channels': {'id': int(chat['id'])}}},
+            upsert=True
+        )
+        await self.db.settings.update_one(
+            {'_id': 'fsub'},
+            {'$push': {'channels': chat}},
+            upsert=True
+        )
+    async def del_fsub(self, chat_id):
+        await self.db.settings.update_one(
+            {'_id': 'fsub'},
+            {'$pull': {'channels': {'id': int(chat_id)}}}
+        )
+    async def list_fsub(self):
+        doc = await self.db.settings.find_one({'_id': 'fsub'}) or {}
+        return doc.get('channels') or []
+    async def has_forwarded(self, user_id, source, msg_id):
+        doc = await self.db.forwarded.find_one({
+            'u': int(user_id), 's': str(source), 'm': int(msg_id)
+        })
+        return bool(doc)
+    async def mark_forwarded(self, user_id, source, msg_id):
+        await self.db.forwarded.update_one(
+            {'u': int(user_id), 's': str(source), 'm': int(msg_id)},
+            {'$set': {'at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
     # Delete/Replace Words Support
     async def set_delete_words(self, id, words):
         await self.col.update_one({'id': int(id)}, {'$addToSet': {'delete_words': {'$each': words}}})
