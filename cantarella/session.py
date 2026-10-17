@@ -1,7 +1,7 @@
 
 
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import Client, filters, StopPropagation
 from pyrogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from pyrogram.errors import (
     ApiIdInvalid,
@@ -105,6 +105,7 @@ async def cancel_login(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML,
             reply_markup=remove_keyboard
         )
+        raise StopPropagation
     else:
         pass
 
